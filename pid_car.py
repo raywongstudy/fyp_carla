@@ -15,6 +15,7 @@ try:
 except IndexError:
     pass
 import carla
+
 def search_min_waypoints(waypoints,point):
     count_waypoints = list()
     for w in waypoints:
@@ -90,11 +91,11 @@ if __name__ == "__main__":
 
     #for draw the spawn_points
     spawn_points = world.get_map().get_spawn_points()
-    draw_points(spawn_points,map,900,[255,0,0],1)
+    # draw_points(spawn_points,map,900,[255,0,0],1)
 
     #for setting the spectator position and the find the actors in the world
     actor_list = world.get_actors()
-    draw_points(actor_list[2].get_transform(),map,900,[255,0,255],0)
+    # draw_points(actor_list[2].get_transform(),map,900,[255,0,255],0)
 
     spectator = world.get_spectator()
     spectator.set_transform(carla.Transform(spawn_points[12].location + carla.Location(z=15,y=15),carla.Rotation(pitch=-45,yaw=-90)))
@@ -105,11 +106,54 @@ if __name__ == "__main__":
     vehicle_bp = blueprint_library.filter('vehicle.volkswagen.t2')[0]
     vehicle = world.spawn_actor(vehicle_bp,spawn_points[12])
 
-    time.sleep(1)
+    time.sleep(2)
+
+
+    #for testing p control
+    def calc_distance(map_,vehicle_):
+        world.debug.draw_string(map.get_waypoint(vehicle_.get_location()).transform.location, '*', draw_shadow=False, color=carla.Color(r=0, g=0, b=0),life_time=60,persistent_lines=True)
+        distance_x = (map_.get_waypoint(vehicle_.get_location()).transform.location.x - vehicle_.get_location().x) ** 2 
+        distance_y = (map_.get_waypoint(vehicle_.get_location()).transform.location.y - vehicle_.get_location().y) ** 2
+        distance = (distance_x + distance_y) ** 0.5
+        return distance
+
+    def policy_p(map_,vehicle_,prev_yaw,distance_upper_limit,orientation):
+        vehicle_distance = calc_distance(map_,vehicle_)
+        if(vehicle.get_transform().rotation.yaw > prev_yaw):
+            # yaw = abs(abs(vehicle.get_transform().rotation.yaw) - abs(prev_yaw))
+            steer_ = -1
+            direction = abs(abs(vehicle.get_transform().rotation.yaw) - orientation)
+        else:
+            # yaw = -abs(abs(vehicle.get_transform().rotation.yaw) - abs(prev_yaw))
+            steer_ = 1
+            direction = abs(abs(vehicle.get_transform().rotation.yaw) - orientation)
+        if (vehicle_distance > distance_upper_limit):
+            vehicle_distance = distance_upper_limit
+
+        result = ((0.5 * vehicle_distance / distance_upper_limit) + (direction / 180 * 0.5)) * steer_
+        return result, vehicle.get_transform().rotation.yaw
+
+    prev_yaw = 90
+    for i in range(80):
+        steer_result, prev_yaw = policy_p(map,vehicle,prev_yaw,0.7,90)
+        time.sleep(0.2)
+        vehicle.apply_control(carla.VehicleControl(throttle=.5, steer=steer_result))
+
+    vehicle.apply_control(carla.VehicleControl(throttle=0, steer=0))
+
+
+
 
     def throttle_go(vehicle_,number,time_):
         vehicle_.apply_control(carla.VehicleControl(throttle=number))
         time.sleep(time_)
+
+    def throttle_go2(vehicle_,number,time_):
+        vehicle_.apply_control(carla.VehicleControl(throttle=number))
+        for i in range(22):
+            time.sleep(0.3)
+            print(map.get_waypoint(vehicle.get_location()))
+            world.debug.draw_string(map.get_waypoint(vehicle.get_location()).transform.location, 'O', draw_shadow=False, color=carla.Color(r=0, g=0, b=0),life_time=60,persistent_lines=True)
 
     def brake_go(vehicle_,number,time_):
         vehicle_.apply_control(carla.VehicleControl(brake=number))
@@ -120,10 +164,10 @@ if __name__ == "__main__":
         time.sleep(time_)
 
     #throttle , steer , brake , reverse
-
+    
     # throttle_go(vehicle,1,6.6)
     # left_go(vehicle,-1,1)
-    print(carla.VehicleControl())
+    # print(carla.VehicleControl())
     # left_go(vehicle,1,.5)
     # left_go(vehicle,-1,.4)
     # left_go(vehicle,1,.2)
