@@ -59,10 +59,11 @@ def draw_waypoints(waypoints,map,seconds):
     planning_route = planning_route + all_lane_w[793:1143:2] + all_lane_w[21:33:2] + all_lane_w[313:369:2] + all_lane_w[277:287:2]
     planning_route = calc_waypoints(planning_route)
 
-    for i, w in enumerate(planning_route):
+    # for i, w in enumerate(planning_route):
+        # world.debug.draw_string(w.transform.location, 'O {}'.format(i), draw_shadow=False, color=carla.Color(r=0, g=0, b=255),life_time=seconds,persistent_lines=True)
+
         # world.debug.draw_string(w.transform.location, '    {} x:{:.2f} y:{:.2f} pitch:{:.2f}'.format(i,w.transform.location.x,w.transform.location.y,w.transform.rotation.pitch) , draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=180.0,persistent_lines=True)
         # world.debug.draw_string(w.transform.location, '    {}'.format(i) , draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=180.0,persistent_lines=True)
-        world.debug.draw_string(w.transform.location, 'O {}'.format(i), draw_shadow=False, color=carla.Color(r=0, g=0, b=255),life_time=seconds,persistent_lines=True)
         # world.debug.draw_string(w.transform.location, 'O', draw_shadow=False, color=carla.Color(r=0, g=0, b=255),life_time=300.0,persistent_lines=True)
     start_waypoint, end_waypoint = planning_route[0], planning_route[-1]    
     world.debug.draw_string(start_waypoint.transform.location, '###', draw_shadow=False, color=carla.Color(r=255, g=0, b=255),life_time=seconds,persistent_lines=True)
@@ -100,85 +101,90 @@ if __name__ == "__main__":
     spectator = world.get_spectator()
     spectator.set_transform(carla.Transform(spawn_points[12].location + carla.Location(z=15,y=15),carla.Rotation(pitch=-45,yaw=-90)))
 
-    #-----------------------try the vehicles----------------------
+
+
+    ###############################################################
+    #----------------try P control the vehicles-------------------#
     blueprint_library = world.get_blueprint_library()
 
     vehicle_bp = blueprint_library.filter('vehicle.volkswagen.t2')[0]
     vehicle = world.spawn_actor(vehicle_bp,spawn_points[12])
 
-    time.sleep(2)
+    def calc_2line_angle(map_,vehicle_,prev_waypoint,prev_vehicle):
+        #for debug use
+        # world.debug.draw_string(vehicle_.get_location(), 'O', draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=600,persistent_lines=True)
+        world.debug.draw_string(map_.get_waypoint(vehicle_.get_location()).transform.location, 'O', draw_shadow=False, color=carla.Color(r=255, g=255, b=255),life_time=600,persistent_lines=True)
 
+        #line one x1 y1 x2 y2
+        current_w_x = map_.get_waypoint(vehicle_.get_location()).transform.location.x
+        current_w_y = map_.get_waypoint(vehicle_.get_location()).transform.location.y
+        prev_w_x = prev_waypoint.transform.location.x
+        prev_w_y = prev_waypoint.transform.location.y
+        k_1 = (current_w_y - prev_w_y) / (current_w_x - prev_w_x)
+
+        #line two k
+        k_2 = (vehicle_.get_location().y - prev_vehicle.y) / (vehicle_.get_location().x - prev_vehicle.x)
+        #get the angle 
+        angle_result = math.atan(abs(( k_1 - k_2)/( 1 + k_1 * k_2 )))
+        print(angle_result)
+        return angle_result
 
     #for testing p control
     def calc_distance(map_,vehicle_):
-        world.debug.draw_string(map.get_waypoint(vehicle_.get_location()).transform.location, '*', draw_shadow=False, color=carla.Color(r=0, g=0, b=0),life_time=60,persistent_lines=True)
+        # world.debug.draw_string(map.get_waypoint(vehicle_.get_location()).transform.location, '*', draw_shadow=False, color=carla.Color(r=255, g=255, b=255),life_time=60,persistent_lines=True)
         distance_x = (map_.get_waypoint(vehicle_.get_location()).transform.location.x - vehicle_.get_location().x) ** 2 
         distance_y = (map_.get_waypoint(vehicle_.get_location()).transform.location.y - vehicle_.get_location().y) ** 2
         distance = (distance_x + distance_y) ** 0.5
         return distance
 
-    def policy_p(map_,vehicle_,prev_yaw,distance_upper_limit,orientation):
-        vehicle_distance = calc_distance(map_,vehicle_)
-        if(vehicle.get_transform().rotation.yaw > prev_yaw):
-            # yaw = abs(abs(vehicle.get_transform().rotation.yaw) - abs(prev_yaw))
-            steer_ = -1
-            direction = abs(abs(vehicle.get_transform().rotation.yaw) - orientation)
+    def calc_direction(map_,vehicle_,prev_waypoint):
+        #A=y2-y1 ; B=x1-x2 ; C=x2*y1-x1*y2 ; D=A*xp + B*yp + C
+        A = (map_.get_waypoint(vehicle_.get_location()).transform.location.y - prev_waypoint.transform.location.y)
+        B = (prev_waypoint.transform.location.x - map_.get_waypoint(vehicle_.get_location()).transform.location.x)
+        C = (map_.get_waypoint(vehicle_.get_location()).transform.location.x * prev_waypoint.transform.location.y) - (prev_waypoint.transform.location.x * map_.get_waypoint(vehicle_.get_location()).transform.location.y)
+        D = A * vehicle_.get_location().x + B * vehicle_.get_location().y + C 
+        if(D > 0): # vehicle in left
+            return 1 # turn right
+        elif(D < 0): # vehicle in right
+            return -1 # turn left
         else:
-            # yaw = -abs(abs(vehicle.get_transform().rotation.yaw) - abs(prev_yaw))
-            steer_ = 1
-            direction = abs(abs(vehicle.get_transform().rotation.yaw) - orientation)
+            return 0 # in line
+
+    def policy_p(map_,vehicle_,prev_waypoint,prev_vehicle,distance_upper_limit):
+        #for the main value----------
+        vehicle_distance = calc_distance(map_,vehicle_) # vehicle distance
+        vehicle_direction = calc_direction(map_,vehicle_,prev_waypoint) #vehicle in line direction
+        vehicle_angle = calc_2line_angle(map_,vehicle_,prev_waypoint,prev_vehicle)
+        print('vehicle_distance: ',vehicle_distance)
+        print('vehicle_direction: ',vehicle_direction)
+        print('vehicle_angle: ',vehicle_angle)
+
+
+        # for headle the vehicle distance upper limit
         if (vehicle_distance > distance_upper_limit):
             vehicle_distance = distance_upper_limit
 
-        result = ((0.5 * vehicle_distance / distance_upper_limit) + (direction / 180 * 0.5)) * steer_
-        return result, vehicle.get_transform().rotation.yaw
+        result = ((0.5 * vehicle_distance / distance_upper_limit) + (vehicle_angle * 0.5)) * vehicle_direction #main formule
+        print('result',result)
+        print(' ')
+        return result
 
-    prev_yaw = 90
-    for i in range(80):
-        steer_result, prev_yaw = policy_p(map,vehicle,prev_yaw,0.7,90)
-        time.sleep(0.2)
-        vehicle.apply_control(carla.VehicleControl(throttle=.5, steer=steer_result))
+    #################################
+    #------------int main-----------#
+    vehicle.apply_control(carla.VehicleControl(throttle=.3, steer=0))
+    time.sleep(2)
+    prev_vehicle = vehicle.get_location()
+    prev_waypoint = map.get_waypoint(vehicle.get_location())
+    time.sleep(1) #for  k_1 = (current_w_y - prev_w_y) / (current_w_x - prev_w_x) ZeroDivisionError: float division by zero
+
+    for i in range(10000):
+        print(i)
+        steer_result = policy_p(map,vehicle,prev_waypoint,prev_vehicle,0.7)
+        time.sleep(0.2) #0.2
+        vehicle.apply_control(carla.VehicleControl(throttle=.3, steer=steer_result)) # throttle= .3 
+        world.debug.draw_string(vehicle.get_location(), '{}'.format(i), draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=600,persistent_lines=True)
 
     vehicle.apply_control(carla.VehicleControl(throttle=0, steer=0))
-
-
-
-
-    def throttle_go(vehicle_,number,time_):
-        vehicle_.apply_control(carla.VehicleControl(throttle=number))
-        time.sleep(time_)
-
-    def throttle_go2(vehicle_,number,time_):
-        vehicle_.apply_control(carla.VehicleControl(throttle=number))
-        for i in range(22):
-            time.sleep(0.3)
-            print(map.get_waypoint(vehicle.get_location()))
-            world.debug.draw_string(map.get_waypoint(vehicle.get_location()).transform.location, 'O', draw_shadow=False, color=carla.Color(r=0, g=0, b=0),life_time=60,persistent_lines=True)
-
-    def brake_go(vehicle_,number,time_):
-        vehicle_.apply_control(carla.VehicleControl(brake=number))
-        time.sleep(time_)
-
-    def left_go(vehicle_,number,time_):
-        vehicle_.apply_control(carla.VehicleControl(steer=number))
-        time.sleep(time_)
-
-    #throttle , steer , brake , reverse
-    
-    # throttle_go(vehicle,1,6.6)
-    # left_go(vehicle,-1,1)
-    # print(carla.VehicleControl())
-    # left_go(vehicle,1,.5)
-    # left_go(vehicle,-1,.4)
-    # left_go(vehicle,1,.2)
-    # left_go(vehicle,-1,.2)
-    # left_go(vehicle,0,.3)
-    # throttle_go(vehicle,7,1)
-    
-
-
-
-
 
 
 
