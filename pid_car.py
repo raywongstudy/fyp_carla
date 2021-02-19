@@ -59,8 +59,9 @@ def draw_waypoints(waypoints,map,seconds):
     planning_route = planning_route + all_lane_w[793:1143:2] + all_lane_w[21:33:2] + all_lane_w[313:369:2] + all_lane_w[277:287:2]
     planning_route = calc_waypoints(planning_route)
 
+    #for drawing the point in the map
     # for i, w in enumerate(planning_route):
-        # world.debug.draw_string(w.transform.location, 'O {}'.format(i), draw_shadow=False, color=carla.Color(r=0, g=0, b=255),life_time=seconds,persistent_lines=True)
+    #     world.debug.draw_string(w.transform.location, 'O {}'.format(i), draw_shadow=False, color=carla.Color(r=0, g=0, b=255),life_time=seconds,persistent_lines=True)
 
         # world.debug.draw_string(w.transform.location, '    {} x:{:.2f} y:{:.2f} pitch:{:.2f}'.format(i,w.transform.location.x,w.transform.location.y,w.transform.rotation.pitch) , draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=180.0,persistent_lines=True)
         # world.debug.draw_string(w.transform.location, '    {}'.format(i) , draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=180.0,persistent_lines=True)
@@ -116,18 +117,34 @@ if __name__ == "__main__":
         world.debug.draw_string(map_.get_waypoint(vehicle_.get_location()).transform.location, 'O', draw_shadow=False, color=carla.Color(r=255, g=255, b=255),life_time=600,persistent_lines=True)
 
         #line one x1 y1 x2 y2
+        if(map_.get_waypoint(vehicle_.get_location()).transform.location.x == prev_waypoint.transform.location.x):
+            time.sleep(0.3)
         current_w_x = map_.get_waypoint(vehicle_.get_location()).transform.location.x
         current_w_y = map_.get_waypoint(vehicle_.get_location()).transform.location.y
         prev_w_x = prev_waypoint.transform.location.x
         prev_w_y = prev_waypoint.transform.location.y
-        k_1 = (current_w_y - prev_w_y) / (current_w_x - prev_w_x)
+
+        if(current_w_y != prev_w_y and current_w_x != prev_w_x):
+            time.sleep(0.3)
+        if(current_w_y != prev_w_y and current_w_x != prev_w_x):
+            print('current_w_y:',current_w_y)
+            print('prev_w_y:',prev_w_y)
+            print('current_w_x:',current_w_x)
+            print('prev_w_x:',prev_w_x)
+            k_1 = (current_w_y - prev_w_y) / (current_w_x - prev_w_x)
 
         #line two k
-        k_2 = (vehicle_.get_location().y - prev_vehicle.y) / (vehicle_.get_location().x - prev_vehicle.x)
+        if(vehicle_.get_location().y == prev_vehicle.y and vehicle_.get_location().x == prev_vehicle.x):
+            time.sleep(0.3)
+        if(vehicle_.get_location().y != prev_vehicle.y and vehicle_.get_location().x != prev_vehicle.x):
+            if((vehicle_.get_location().y - prev_vehicle.y) != 0 and (vehicle_.get_location().x - prev_vehicle.x) != 0):
+                k_2 = (vehicle_.get_location().y - prev_vehicle.y) / (vehicle_.get_location().x - prev_vehicle.x)
+        
         #get the angle 
         angle_result = math.atan(abs(( k_1 - k_2)/( 1 + k_1 * k_2 )))
         print(angle_result)
         return angle_result
+
 
     #for testing p control
     def calc_distance(map_,vehicle_):
@@ -163,14 +180,17 @@ if __name__ == "__main__":
         # for headle the vehicle distance upper limit
         if (vehicle_distance > distance_upper_limit):
             vehicle_distance = distance_upper_limit
+        if (vehicle_angle > 0.3):
+            vehicle_angle = 0.3
 
-        result = ((0.5 * vehicle_distance / distance_upper_limit) + (vehicle_angle * 0.5)) * vehicle_direction #main formule
+        result = ((0.6 * vehicle_distance / distance_upper_limit) + (vehicle_angle * 0.4)) * vehicle_direction #main formule
         print('result',result)
         print(' ')
         return result
 
     #################################
     #------------int main-----------#
+
     vehicle.apply_control(carla.VehicleControl(throttle=.3, steer=0))
     time.sleep(2)
     prev_vehicle = vehicle.get_location()
@@ -178,11 +198,14 @@ if __name__ == "__main__":
     time.sleep(1) #for  k_1 = (current_w_y - prev_w_y) / (current_w_x - prev_w_x) ZeroDivisionError: float division by zero
 
     for i in range(10000):
+        prev_vehicle = vehicle.get_location()
+        prev_waypoint = map.get_waypoint(vehicle.get_location())
         print(i)
-        steer_result = policy_p(map,vehicle,prev_waypoint,prev_vehicle,0.7)
         time.sleep(0.2) #0.2
-        vehicle.apply_control(carla.VehicleControl(throttle=.3, steer=steer_result)) # throttle= .3 
-        world.debug.draw_string(vehicle.get_location(), '{}'.format(i), draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=600,persistent_lines=True)
+        steer_result = policy_p(map,vehicle,prev_waypoint,prev_vehicle,0.5)
+        vehicle.apply_control(carla.VehicleControl(throttle=.5, steer=steer_result)) # throttle= .3 
+        world.debug.draw_string(vehicle.get_location(), '{}'.format(i), draw_shadow=False, color=carla.Color(r=255, g=0, b=0),life_time=6000,persistent_lines=True)
+
 
     vehicle.apply_control(carla.VehicleControl(throttle=0, steer=0))
 
